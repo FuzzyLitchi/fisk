@@ -9,6 +9,7 @@ mod graphics;
 use graphics::Graphics;
 
 struct Fisk {
+    window: Window,
     graphics: Graphics,
     test: usize,
     smiley: usize,
@@ -17,9 +18,22 @@ struct Fisk {
 impl Fisk {
     fn new() -> Self {
         Self {
+            window: Window::new("fisk", graphics::WIDTH, graphics::HEIGHT, WindowOptions::default()).expect("Unable to open window"),
             graphics: Graphics::new(),
             test: 0,
             smiley: 0,
+        }
+    }
+
+    fn run_forerver(&mut self) {
+        //Intead of calling self.load, eventually this should be replaced by the scripting engine
+        self.load();
+
+        while self.window.is_open() {
+            //Instead of calling self.draw, eventually this should be replaced by the scripting engine
+            self.draw();
+            //This applies the computed array buffer
+            self.window.update_with_buffer(&self.graphics.buffer).unwrap();
         }
     }
 
@@ -47,12 +61,5 @@ impl Fisk {
 pub fn main() {
     let mut fisk = Fisk::new();
 
-    let mut window = Window::new("fisk", graphics::WIDTH, graphics::HEIGHT, WindowOptions::default()).expect("Unable to open window");
-
-    fisk.load();
-
-    while window.is_open() {
-        fisk.draw();
-        window.update_with_buffer(&fisk.graphics.buffer).unwrap();
-    }
+    fisk.run_forerver();
 }
