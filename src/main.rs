@@ -5,8 +5,12 @@ extern crate image;
 extern crate minifb;
 use minifb::{Window, WindowOptions, Key};
 
+extern crate rlua;
+use rlua::{Function, Lua, MetaMethod, Result, UserData, UserDataMethods, Variadic};
+
 mod graphics;
 use graphics::Graphics;
+use std::sync::{Arc, Mutex};
 
 struct Fisk {
     window: Window,
@@ -14,6 +18,9 @@ struct Fisk {
     test: usize,
     smiley: usize,
 }
+
+unsafe impl Send for Fisk{}
+unsafe impl Sync for Fisk{}
 
 impl Fisk {
     fn new() -> Self {
@@ -27,11 +34,11 @@ impl Fisk {
 
     fn run_forerver(&mut self) {
         //Intead of calling self.load, eventually this should be replaced by the scripting engine
-        self.load();
+        //self.load();
 
         while self.window.is_open() {
             //Instead of calling self.draw, eventually this should be replaced by the scripting engine
-            self.draw();
+            //self.draw();
             //This applies the computed array buffer
             self.window.update_with_buffer(&self.graphics.buffer).unwrap();
         }
@@ -59,7 +66,34 @@ impl Fisk {
 }
 
 pub fn main() {
-    let mut fisk = Fisk::new();
+    let fisk = Arc::new(Mutex::new(Fisk::new()));
 
-    fisk.run_forerver();
+    let lua = Lua::new();
+    let globals = lua.globals();
+
+    let cloned_fisk = fisk.clone();
+    globals.set(
+        "new_image",
+        lua.create_function(move |_, path: String| {
+            Ok(cloned_fisk.lock().unwrap().graphics.new_image(&path))
+        }).unwrap()
+    ).unwrap();
+
+    let cloned_fisk = fisk.clone();
+    globals.set(
+        "draw_image",
+        lua.create_function(move |_, (id, x, y): (usize, i32, i32)| {
+            Ok(cloned_fisk.lock().unwrap().graphics.draw_image(id, x, y))
+        }).unwrap()
+    ).unwrap();
+
+    lua.exec::<()>(
+        r#"
+            smiley = new_image("smiley.png")
+            draw_image(smiley, 100, 200)
+        "#,
+        None
+    ).unwrap();
+
+    fisk.lock().unwrap().run_forerver();
 }
