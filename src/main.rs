@@ -14,9 +14,8 @@ use std::sync::{Arc, Mutex};
 
 struct Fisk {
     window: Window,
-    graphics: Graphics,
-    test: usize,
-    smiley: usize,
+    graphics: Arc<Mutex<Graphics>>,
+    lua: Lua,
 }
 
 unsafe impl Send for Fisk{}
@@ -24,76 +23,66 @@ unsafe impl Sync for Fisk{}
 
 impl Fisk {
     fn new() -> Self {
-        Self {
+        let fisk = Self {
             window: Window::new("fisk", graphics::WIDTH, graphics::HEIGHT, WindowOptions::default()).expect("Unable to open window"),
-            graphics: Graphics::new(),
-            test: 0,
-            smiley: 0,
+            graphics: Arc::new(Mutex::new(Graphics::new())),
+            lua: Lua::new(),
+        };
+
+        //New scope so fisk.lua is not borrowed afterwards
+        {
+            let globals = fisk.lua.globals();
+
+            let cloned_graphics = fisk.graphics.clone();
+            globals.set(
+                "new_image",
+                fisk.lua.create_function(move |_, path: String| {
+                    Ok(cloned_graphics.lock().unwrap().new_image(&path))
+                }).unwrap()
+            ).unwrap();
+
+            let cloned_graphics = fisk.graphics.clone();
+            globals.set(
+                "draw_image",
+                fisk.lua.create_function(move |_, (id, x, y): (usize, i32, i32)| {
+                    Ok(cloned_graphics.lock().unwrap().draw_image(id, x, y))
+                }).unwrap()
+            ).unwrap();
+
+            fisk.lua.exec::<()>(
+                r#"
+function load()
+    smiley = new_image("smiley.png")
+    i = 0
+end
+
+function draw()
+    i = i + 1
+    draw_image(smiley, i, 200)
+end
+                "#,
+                None
+            ).unwrap();
         }
+
+        fisk
     }
 
     fn run_forerver(&mut self) {
-        //Intead of calling self.load, eventually this should be replaced by the scripting engine
-        //self.load();
+        self.lua.eval::<()>("load()", None).unwrap();
 
         while self.window.is_open() {
-            //Instead of calling self.draw, eventually this should be replaced by the scripting engine
-            //self.draw();
+            //Clear screen
+            self.graphics.lock().unwrap().clear();
+            self.lua.eval::<()>("draw()", None).unwrap();
+
             //This applies the computed array buffer
-            self.window.update_with_buffer(&self.graphics.buffer).unwrap();
+            self.window.update_with_buffer(&self.graphics.lock().unwrap().buffer).unwrap();
         }
-    }
-
-    fn load(&mut self) {
-        self.test = self.graphics.new_image("test.png");
-        self.smiley = self.graphics.new_image("smiley.png");
-    }
-
-    fn update(&mut self) {
-        //let dt = timer::get_delta(ctx).subsec_nanos() as f64 / 1_000_000_000.0;
-    }
-
-    fn draw(&mut self) {
-        //Clear the screen
-        self.graphics.clear();
-
-        //Tmp test stuff
-        let id = self.test;
-        self.graphics.draw_image(id, 0, 0);
-        let id = self.smiley;
-        self.graphics.draw_image(id, 0, 0);
     }
 }
 
 pub fn main() {
-    let fisk = Arc::new(Mutex::new(Fisk::new()));
-
-    let lua = Lua::new();
-    let globals = lua.globals();
-
-    let cloned_fisk = fisk.clone();
-    globals.set(
-        "new_image",
-        lua.create_function(move |_, path: String| {
-            Ok(cloned_fisk.lock().unwrap().graphics.new_image(&path))
-        }).unwrap()
-    ).unwrap();
-
-    let cloned_fisk = fisk.clone();
-    globals.set(
-        "draw_image",
-        lua.create_function(move |_, (id, x, y): (usize, i32, i32)| {
-            Ok(cloned_fisk.lock().unwrap().graphics.draw_image(id, x, y))
-        }).unwrap()
-    ).unwrap();
-
-    lua.exec::<()>(
-        r#"
-            smiley = new_image("smiley.png")
-            draw_image(smiley, 100, 200)
-        "#,
-        None
-    ).unwrap();
-
-    fisk.lock().unwrap().run_forerver();
+    let mut fisk = Fisk::new();
+    fisk.run_forerver();
 }
