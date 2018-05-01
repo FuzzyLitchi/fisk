@@ -23,7 +23,7 @@ impl Graphics {
     }
 
     pub fn new_image(&mut self, path: &str) -> usize {
-        self.images.push(image::open(path).unwrap());
+        self.images.push(image::open(path).expect("Image not found"));
         self.images.len() - 1
     }
 

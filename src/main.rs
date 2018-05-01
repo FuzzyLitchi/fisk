@@ -3,14 +3,16 @@ extern crate blit;
 extern crate image;
 
 extern crate minifb;
-use minifb::{Window, WindowOptions, Key};
+use minifb::{Window, WindowOptions};
 
 extern crate rlua;
-use rlua::{Function, Lua, MetaMethod, Result, UserData, UserDataMethods, Variadic};
+use rlua::Lua;
 
 mod graphics;
 use graphics::Graphics;
 use std::sync::{Arc, Mutex};
+use std::fs::File;
+use std::io::prelude::*;
 
 struct Fisk {
     window: Window,
@@ -31,10 +33,11 @@ impl Fisk {
 
         //New scope so fisk.lua is not borrowed afterwards
         {
-            let globals = fisk.lua.globals();
+            //The "fisk" table in lua
+            let lua_fisk = fisk.lua.create_table().unwrap();
 
             let cloned_graphics = fisk.graphics.clone();
-            globals.set(
+            lua_fisk.set(
                 "new_image",
                 fisk.lua.create_function(move |_, path: String| {
                     Ok(cloned_graphics.lock().unwrap().new_image(&path))
@@ -42,39 +45,34 @@ impl Fisk {
             ).unwrap();
 
             let cloned_graphics = fisk.graphics.clone();
-            globals.set(
+            lua_fisk.set(
                 "draw_image",
                 fisk.lua.create_function(move |_, (id, x, y): (usize, i32, i32)| {
-                    Ok(cloned_graphics.lock().unwrap().draw_image(id, x, y))
+                    cloned_graphics.lock().unwrap().draw_image(id, x, y);
+                    Ok(())
                 }).unwrap()
             ).unwrap();
 
-            fisk.lua.exec::<()>(
-                r#"
-function load()
-    smiley = new_image("smiley.png")
-    i = 0
-end
-
-function draw()
-    i = i + 1
-    draw_image(smiley, i, 200)
-end
-                "#,
-                None
-            ).unwrap();
+            //Set the fisk array with the fisk functions to fisk in lua
+            fisk.lua.globals().set("fisk", lua_fisk).unwrap();
         }
 
         fisk
     }
 
+    fn load_script(&self, script: &str) {
+        self.lua.exec::<()>(script, None).expect("Error in loaded script");
+    }
+
     fn run_forerver(&mut self) {
-        self.lua.eval::<()>("load()", None).unwrap();
+        self.lua.eval::<()>("fisk.load()", None).unwrap();
 
         while self.window.is_open() {
+            self.lua.eval::<()>("fisk.update()", None).unwrap();
+
             //Clear screen
             self.graphics.lock().unwrap().clear();
-            self.lua.eval::<()>("draw()", None).unwrap();
+            self.lua.eval::<()>("fisk.draw()", None).unwrap();
 
             //This applies the computed array buffer
             self.window.update_with_buffer(&self.graphics.lock().unwrap().buffer).unwrap();
@@ -84,5 +82,11 @@ end
 
 pub fn main() {
     let mut fisk = Fisk::new();
+
+    let mut script = String::new();
+    let mut file = File::open("main.lua").expect("File not found");
+    file.read_to_string(&mut script).expect("Can't read file");
+    fisk.load_script(&script);
+
     fisk.run_forerver();
 }
