@@ -6,7 +6,7 @@ extern crate minifb;
 use minifb::{Window, WindowOptions};
 
 extern crate rlua;
-use rlua::Lua;
+use rlua::{Lua, Table, Function};
 
 mod graphics;
 use graphics::Graphics;
@@ -19,9 +19,6 @@ struct Fisk {
     graphics: Arc<Mutex<Graphics>>,
     lua: Lua,
 }
-
-unsafe impl Send for Fisk{}
-unsafe impl Sync for Fisk{}
 
 impl Fisk {
     fn new() -> Self {
@@ -65,14 +62,25 @@ impl Fisk {
     }
 
     fn run_forerver(&mut self) {
-        self.lua.eval::<()>("fisk.load()", None).unwrap();
+        //Find functions
+        let load: Function;
+        let update: Function;
+        let draw: Function;
+        {
+            let lua_fisk = self.lua.globals().get::<&str, Table>("fisk").unwrap();
+            load = lua_fisk.get::<&str, Function>("load").unwrap();
+            update = lua_fisk.get::<&str, Function>("update").unwrap();
+            draw = lua_fisk.get::<&str, Function>("draw").unwrap();
+        }
+        //Call load
+        load.call::<_, ()>(()).unwrap();
 
         while self.window.is_open() {
-            self.lua.eval::<()>("fisk.update()", None).unwrap();
+            update.call::<_, ()>((/*Delta time here*/)).unwrap();
 
             //Clear screen
             self.graphics.lock().unwrap().clear();
-            self.lua.eval::<()>("fisk.draw()", None).unwrap();
+            draw.call::<_, ()>(()).unwrap();
 
             //This applies the computed array buffer
             self.window.update_with_buffer(&self.graphics.lock().unwrap().buffer).unwrap();
